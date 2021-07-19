@@ -1,0 +1,122 @@
+theory PrivacyPreserving3
+begin
+
+builtins: hashing, signing, multiset
+
+rule Register_pk:
+    [ Fr(~ltkA) ]
+    -->
+    [ !Ltk($A, ~ltkA), !Pk($A, pk(~ltkA)) ]
+
+rule Register_did:
+    [ !Pk(A, pkA) ]
+    -->
+    [ !Did(A, h(pkA)) ]
+
+rule Register_tkn:
+    let
+    gamma = <h('0'), ~gam>
+    in
+    [ !Ltk(A, ltkA), Fr(~gam) ]
+    -->
+    [ !Token(A, ltkA, '0', h('0')), !Gamma(A, ltkA, '0', ~gam) ]
+
+rule Setup:
+    [ !Token(A, ltkA, cnt, token), !Gamma(A, ltkA, cnt, gamma), Fr(~ltkz) ]
+    -->
+    [ !Ltk($Z, ~ltkz), !Pk($Z, pk(~ltkz))]
+
+rule Generate_tkn:
+    let
+    tkn = fst(betatoken)
+    hg = fst(gamma)
+    in
+    [ !Ltk(A, ltkA), !Token(A, ltkA, cnt, token), !Gamma(A, ltkA, cnt, gamma),
+    !Betatkn(A, betatoken), !Pk(A, pkA), Fr(~gam) ]
+    --[ Eq(hg, h(cnt)),
+    Eq(token, tkn) ]->
+    [ !Token(A, ltkA, cnt+'1', h(cnt+'1')), !Gamma(A, ltkA, cnt+'1', <h(cnt+'1'), ~gam>) ]
+
+rule Generate_proof:
+    [ Fr(~w), !Ltk(Z, ltkz), !Token(A, ltkA, cnt, token) ]
+    -->
+    [ !Phi(A, ltkz, token, ~w) ]
+
+rule Registration_request:
+    let p = <pkA, ~info, token>
+    in
+    [ Fr(~info), !Token(A, ltkA, cnt, token), !Ltk(A, ltkA), !Pk(A, pkA) ]
+    --[ Send_RR(A) ]->
+    [ Out(<p, sign(p, ltkA)>)]
+
+rule blockchain_receive:
+    let 
+    n1 = <token, ~betatkn>
+    n2 = <did, ~betadid>
+    p = <pkA, ~info, token>
+    sig = sign(p, ltkA)
+    in
+    [ !Pk(A, pkA), !Ltk(A, ltkA), In(<p, sig>), !Token(A, ltkA, cnt, token), 
+    Fr(~betadid), Fr(~betatkn), !Did(A, did) ]
+    --[ Recv_RR(A),
+    Eq(verify(sig, p, pkA), true), Unique(token) ]->
+    [ !Did(A, did), !Betadid(A, n1), !Betatkn(A, n2) ]
+
+rule Generate_pke:
+    [ Fr(~ltkB), !Ltk(A, ltkA) ]
+    -->
+    [ !Ltk2(A, ~ltkB), !Pk2(A, sign(pk(~ltkB), ltkA)) ]
+
+rule Auth_req2:
+    [ !Token(A, ltkA, cnt, token), !Ltk(A, ltkA), !Pk(A, pkA), !Did(A, did), 
+    !Betadid(A, betadidd), !Gamma(A, ltkA, cnt, gamma), Fr(~tknreq) ]
+    --[ Send_to_service(A) ]->
+    [ !Authreq(did, betadidd, cnt, gamma, ~tknreq) ]
+
+rule service_receive2:
+    let 
+    dd = fst(betadidd)
+    hg = fst(gamma)
+    in
+    [ !Token(A, ltkA, cnt, token), !Phi(A, ltkz, token, w), !Ltk2(A, ltkB), !Pk(A, pkA),
+    !Pk2(A, pkB), !Authreq(did, betadidd, cnt, gamma, tknreq), In(<m, sig>) ]
+    --[ Recv_AR(A),
+    Eq(hg, h(cnt)),
+    Eq(did, dd) ]->
+    [ !Tokenreq(w, token, sign(<w, token>, ltkB), pkB, tknreq) ]
+
+rule blockchain_receive2:
+    let
+    sig = sign(<w, token>, ltkB)
+    in
+    [ !Pk(B, pkB), !Phi(A, ltkz, token, w), !Token(A, ltkA, cnt, token), !Pk(Z, pkz),
+    !Tokenreq(w, token, sig, pkB, tknreq), In(<<w, token>, sig>), Fr(~betatkn) ]
+    --[ Recv_TR(A),
+    Eq(verify(sig, <w, token>, pkz), true), Unique(token) ]->
+    [ !Betatkn(A, <token, ~betatkn>) ]
+
+rule return_to_service:
+    let
+    tkn = fst(betatoken)
+    in
+    [ !Token(A, ltkA, cnt, token), !Betatkn(A, betatoken) ]
+    --[ Eq(token, tkn), Finish() ]->
+    [ !St_Session(A) ]
+
+restriction Equality:
+    "All x y #i. Eq(x,y) @i ==> x = y"
+
+restriction uniqueness:
+    "All x #i #j. Unique(x) @i & Unique(x) @j ==> #i = #j"
+
+lemma executable:
+    exists-trace
+        "Ex #i. Finish() @i 
+        & (All x y #i #j. (Send_RR(x)@i & Send_RR(y)@j) ==> x = y)
+        & (All x y #i #j. (Recv_RR(x)@i & Recv_RR(y)@j) ==> x = y)
+        & (All x y #i #j. (Send_to_service(x)@i & Send_to_service(y)@j) ==> x = y)
+        & (All x y #i #j. (Recv_AR(x)@i & Recv_AR(y)@j) ==> x = y)
+        & (All x y #i #j. (Recv_TR(x)@i & Recv_TR(y)@j) ==> x = y)
+        "
+
+end

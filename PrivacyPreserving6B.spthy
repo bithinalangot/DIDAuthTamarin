@@ -1,0 +1,334 @@
+theory PrivacyPreserving6 begin
+
+// Function signature and definition of the equational theory E
+
+builtins: multiset
+functions: fst/1, g1/1 [private], g2/1 [private], gamma/2, h/1,
+           pair/2, pk/1, prove/3, sign/2, snd/1, t1/1 [private],
+           t2/1 [private], token/2, true/0, verify/3, vrfy/3, vrfyVRF/4
+equations:
+    fst(<x.1, x.2>) = x.1,
+    g1(gamma(a, b)) = a,
+    g2(gamma(a, b)) = b,
+    snd(<x.1, x.2>) = x.2,
+    t1(token(a, b)) = a,
+    t2(token(a, b)) = b,
+    verify(sign(x.1, x.2), x.1, pk(x.2)) = true,
+    vrfy(prove(inp, w, sk), inp, pk(sk)) = true,
+    vrfyVRF(x, token(x, sk), gamma(x, sk), pk(sk)) = true
+
+
+
+rule (modulo E) Register_pk:
+   [ Fr( ~ltkA ) ] --> [ !Ltk( $A, ~ltkA ), !Pk( $A, pk(~ltkA) ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Register_did:
+   [ !Pk( $A, pkA ) ] --> [ !Did( $A, h(pkA) ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Register_tkn:
+   [ !Ltk( $A, ltkA ) ]
+  -->
+   [ !Token( $A, token('0', ltkA) ), !Gamma( $A, gamma('0', ltkA) ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Registration_request:
+   [
+   Fr( ~info ), !Token( $A, token('0', ltkA) ), !Ltk( $A, ltkA ),
+   !Pk( $A, pkA )
+   ]
+  --[ Send_RR( $A ) ]->
+   [
+   Out( <<pkA, ~info, token('0', ltkA)>, 
+         sign(<pkA, ~info, token('0', ltkA)>, ltkA)>
+   )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) blockchain_receive:
+   [
+   !Pk( $A, pkA ), In( <p, sig> ), !Token( $A, tkn ), !Did( $A, did )
+   ]
+  --[ Recv_RR( $A ), Eq( verify(sig, p, pkA), true ), Unique( tkn )
+  ]->
+   [ !Did( $A, did ), !Betadid( did ), !Betatkn( tkn ) ]
+
+  // loop breaker: [3]
+  /*
+  rule (modulo AC) blockchain_receive:
+     [
+     !Pk( $A, pkA ), In( <p, sig> ), !Token( $A, tkn ), !Did( $A, did )
+     ]
+    --[ Recv_RR( $A ), Eq( z, true ), Unique( tkn ) ]->
+     [ !Did( $A, did ), !Betadid( did ), !Betatkn( tkn ) ]
+    variants (modulo AC)
+    1. p     = p.8
+       pkA   = pkA.8
+       sig   = sig.8
+       z     = verify(sig.8, p.8, pkA.8)
+    
+    2. p     = x.8
+       pkA   = pk(x.9)
+       sig   = sign(x.8, x.9)
+       z     = true
+    // loop breaker: [3]
+  */
+
+rule (modulo E) Generate_tkn:
+   [
+   !Token( $A, tkn ), !Gamma( $A, gam ), !Betatkn( betatoken ),
+   Fr( ~w ), !Ltk( $Z, ltkz )
+   ]
+  --[
+  Eq( g1(gam), t1(tkn) ), Eq( g2(gam), t2(tkn) ),
+  Eq( betatoken, tkn )
+  ]->
+   [
+   !Token( $A, token(('1'+t1(tkn)), t2(tkn)) ),
+   !Gamma( $A, gamma(('1'+g1(gam)), g2(gam)) ),
+   Phi( $A, prove(token(('1'+t1(tkn)), t2(tkn)), ~w, ltkz) )
+   ]
+
+  // loop breakers: [0,1,2]
+  /*
+  rule (modulo AC) Generate_tkn:
+     [
+     !Token( $A, tkn ), !Gamma( $A, gam ), !Betatkn( betatoken ),
+     Fr( ~w ), !Ltk( $Z, ltkz )
+     ]
+    --[ Eq( z.2, z ), Eq( z.3, z.1 ), Eq( betatoken, tkn ) ]->
+     [
+     !Token( $A, token(('1'+z), z.1) ),
+     !Gamma( $A, gamma(('1'+z.2), z.3) ),
+     Phi( $A, prove(token(('1'+z), z.1), ~w, ltkz) )
+     ]
+    variants (modulo AC)
+    1. gam   = gam.14
+       tkn   = tkn.16
+       z     = t1(tkn.16)
+       z.1   = t2(tkn.16)
+       z.2   = g1(gam.14)
+       z.3   = g2(gam.14)
+    
+    2. gam   = gam.16
+       tkn   = token(z.20, z.21)
+       z     = z.20
+       z.1   = z.21
+       z.2   = g1(gam.16)
+       z.3   = g2(gam.16)
+    
+    3. gam   = gamma(z.20, z.21)
+       tkn   = tkn.16
+       z     = t1(tkn.16)
+       z.1   = t2(tkn.16)
+       z.2   = z.20
+       z.3   = z.21
+    
+    4. gam   = gamma(z.20, z.21)
+       tkn   = token(z.18, z.19)
+       z     = z.18
+       z.1   = z.19
+       z.2   = z.20
+       z.3   = z.21
+    // loop breakers: [0,1,2]
+  */
+
+rule (modulo E) Generate_pke:
+   [ Fr( ~ltkB ), !Ltk( $A, ltkA ) ]
+  -->
+   [ Ltk2( $A, ~ltkB ), Pk2( $A, sign(pk(~ltkB), ltkA) ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Auth_req2:
+   [
+   Phi( $A, proof ), !Token( $A, tkn ), Ltk2( $A, ltkB ),
+   Pk2( $A, pkB ), !Did( $A, did ), !Betadid( betadid ),
+   !Gamma( $A, gam )
+   ]
+  --[ Send_to_service( $A ), Eq( t1(tkn), g1(gam) ) ]->
+   [
+   Authreq( did, betadid, t1(tkn), gam,
+            <<proof, tkn>, sign(<proof, tkn>, ltkB), pkB>
+   )
+   ]
+
+  /*
+  rule (modulo AC) Auth_req2:
+     [
+     Phi( $A, proof ), !Token( $A, tkn ), Ltk2( $A, ltkB ),
+     Pk2( $A, pkB ), !Did( $A, did ), !Betadid( betadid ),
+     !Gamma( $A, gam )
+     ]
+    --[ Send_to_service( $A ), Eq( z, z.1 ) ]->
+     [
+     Authreq( did, betadid, z, gam,
+              <<proof, tkn>, sign(<proof, tkn>, ltkB), pkB>
+     )
+     ]
+    variants (modulo AC)
+    1. gam   = gam.11
+       tkn   = tkn.11
+       z     = t1(tkn.11)
+       z.1   = g1(gam.11)
+    
+    2. gam   = gam.13
+       tkn   = token(x.11, x.12)
+       z     = x.11
+       z.1   = g1(gam.13)
+    
+    3. gam   = gamma(x.11, x.12)
+       tkn   = tkn.13
+       z     = t1(tkn.13)
+       z.1   = x.11
+    
+    4. gam   = gamma(x.11, x.12)
+       tkn   = token(x.16, x.17)
+       z     = x.16
+       z.1   = x.11
+  */
+
+rule (modulo E) service_receive2:
+   [
+   Authreq( did, betadid, cnt, gamma, <<proof, tkn>, sig, pkB> ),
+   !Pk( $A, pkA )
+   ]
+  --[
+  Recv_AR( $A ), Eq( vrfyVRF(cnt, tkn, gamma, pkA), true ),
+  Eq( did, betadid )
+  ]->
+   [ Out( <<proof, tkn>, sig, pkB> ) ]
+
+  /*
+  rule (modulo AC) service_receive2:
+     [
+     Authreq( did, betadid, cnt, gamma, <<proof, tkn>, sig, pkB> ),
+     !Pk( $A, pkA )
+     ]
+    --[ Recv_AR( $A ), Eq( z, true ), Eq( did, betadid ) ]->
+     [ Out( <<proof, tkn>, sig, pkB> ) ]
+    variants (modulo AC)
+    1. cnt   = cnt.12
+       gamma = gamma.12
+       pkA   = pkA.12
+       tkn   = tkn.12
+       z     = vrfyVRF(cnt.12, tkn.12, gamma.12, pkA.12)
+    
+    2. cnt   = x.12
+       gamma = gamma(x.12, x.14)
+       pkA   = pk(x.14)
+       tkn   = token(x.12, x.14)
+       z     = true
+  */
+
+rule (modulo E) blockchain_receive2:
+   [ In( <<proof, tkn>, sig, pkB> ), !Pk( $Z, pkz ) ]
+  --[ Recv_TR( ), Eq( vrfy(proof, tkn, pkz), true ), Unique( tkn )
+  ]->
+   [ !Betatkn( tkn ) ]
+
+  /*
+  rule (modulo AC) blockchain_receive2:
+     [ In( <<proof, tkn>, sig, pkB> ), !Pk( $Z, pkz ) ]
+    --[ Recv_TR( ), Eq( z, true ), Unique( tkn ) ]->
+     [ !Betatkn( tkn ) ]
+    variants (modulo AC)
+    1. pkz   = pkz.8
+       proof = proof.8
+       tkn   = tkn.8
+       z     = vrfy(proof.8, tkn.8, pkz.8)
+    
+    2. pkz   = pk(x.8)
+       proof = prove(x.9, x.10, x.8)
+       tkn   = x.9
+       z     = true
+  */
+
+rule (modulo E) return_to_service:
+   [ !Token( $A, tkn ), !Betatkn( betatoken ) ]
+  --[ Eq( betatoken, tkn ), Finish( ) ]->
+   [ St_Session( $A ) ]
+
+  /* has exactly the trivial AC variant */
+
+restriction Equality:
+  "∀ x y #i. (Eq( x, y ) @ #i) ⇒ (x = y)"
+  // safety formula
+
+restriction uniqueness:
+  "∀ x #i #j. ((Unique( x ) @ #i) ∧ (Unique( x ) @ #j)) ⇒ (#i = #j)"
+  // safety formula
+
+lemma executable:
+  exists-trace
+  "∃ #i.
+    (((((Finish( ) @ #i) ∧
+        (∀ x y #i.1 #j.
+          ((Send_RR( x ) @ #i.1) ∧ (Send_RR( y ) @ #j)) ⇒
+          ((x = y) ∧ (#i.1 = #j)))) ∧
+       (∀ x y #i.1 #j.
+         ((Recv_RR( x ) @ #i.1) ∧ (Recv_RR( y ) @ #j)) ⇒
+         ((x = y) ∧ (#i.1 = #j)))) ∧
+      (∀ x y #i.1 #j.
+        ((Send_to_service( x ) @ #i.1) ∧ (Send_to_service( y ) @ #j)) ⇒
+        (x = y))) ∧
+     (∀ x y #i.1 #j.
+       ((Recv_AR( x ) @ #i.1) ∧ (Recv_AR( y ) @ #j)) ⇒
+       ((x = y) ∧ (#i.1 = #j)))) ∧
+    (∀ #i.1 #j.
+      ((Recv_TR( ) @ #i.1) ∧ (Recv_TR( ) @ #j)) ⇒ (#i.1 = #j))"
+/*
+guarded formula characterizing all satisfying traces:
+"∃ #i.
+  (Finish( ) @ #i)
+ ∧
+  (∀ x y #i.1 #j.
+    (Send_RR( x ) @ #i.1) ∧ (Send_RR( y ) @ #j)
+   ⇒
+    (x = y) ∧ (#i.1 = #j)) ∧
+  (∀ x y #i.1 #j.
+    (Recv_RR( x ) @ #i.1) ∧ (Recv_RR( y ) @ #j)
+   ⇒
+    (x = y) ∧ (#i.1 = #j)) ∧
+  (∀ x y #i.1 #j.
+    (Send_to_service( x ) @ #i.1) ∧ (Send_to_service( y ) @ #j)
+   ⇒
+    x = y) ∧
+  (∀ x y #i.1 #j.
+    (Recv_AR( x ) @ #i.1) ∧ (Recv_AR( y ) @ #j)
+   ⇒
+    (x = y) ∧ (#i.1 = #j)) ∧
+  (∀ #i.1 #j. (Recv_TR( ) @ #i.1) ∧ (Recv_TR( ) @ #j) ⇒ #i.1 = #j)"
+*/
+simplify
+solve( !Token( $A, betatoken ) ▶₀ #i )
+  case Register_tkn
+  solve( !Betatkn( token('0', ~ltkA) ) ▶₁ #i )
+    case blockchain_receive
+    solve( !KU( sign(p, ~ltkA.1) ) @ #vk.2 )
+      case Registration_request
+      solve( !Did( $A, did ) ▶₃ #vr.2 )
+        case Register_did
+        solve( !KU( ~info ) @ #vk.5 )
+          case Registration_request
+          solve( !KU( pk(~ltkA.1) ) @ #vk.4 )
+            case Registration_request
+            solve( !KU( token('0', ~ltkA.2) ) @ #vk.6 )
+              case Registration_request
+              SOLVED // trace found
+            qed
+          qed
+        qed
+      qed
+    qed
+  qed
+qed
+
+/* All well-formedness checks were successful. */
+
+end
